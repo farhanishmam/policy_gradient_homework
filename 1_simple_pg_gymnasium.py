@@ -5,6 +5,8 @@ from torch.optim import Adam
 import numpy as np
 import gymnasium as gym
 from gymnasium.spaces import Discrete, Box
+import json
+import os
 
 def mlp(sizes, activation=nn.Tanh, output_activation=nn.Identity):
     # Build a feedforward neural network.
@@ -15,10 +17,15 @@ def mlp(sizes, activation=nn.Tanh, output_activation=nn.Identity):
     return nn.Sequential(*layers)
 
 def train(env_name='CartPole-v1', hidden_sizes=[32], lr=1e-2, 
-          epochs=50, batch_size=5000, render=False):
+          epochs=50, batch_size=5000, render=False, seed=0, save_results=False):
+
+    # set random seeds for reproducibility
+    torch.manual_seed(seed)
+    np.random.seed(seed)
 
     # make environment, check spaces, get obs / act dims
     env = gym.make(env_name)
+    env.reset(seed=seed)
     assert isinstance(env.observation_space, Box), \
         "This example only works for envs with continuous state spaces."
     assert isinstance(env.action_space, Discrete), \
@@ -114,10 +121,35 @@ def train(env_name='CartPole-v1', hidden_sizes=[32], lr=1e-2,
         return batch_loss, batch_rets, batch_lens
 
     # training loop
+    all_mean_rets = []  # for saving results
     for i in range(epochs):
         batch_loss, batch_rets, batch_lens = train_one_epoch()
+        mean_ret = np.mean(batch_rets)
+        all_mean_rets.append(float(mean_ret))
         print('epoch: %3d \t loss: %.3f \t return: %.3f \t ep_len: %.3f'%
-                (i, batch_loss, np.mean(batch_rets), np.mean(batch_lens)))
+                (i, batch_loss, mean_ret, np.mean(batch_lens)))
+
+        # Part 1b: visually render 1 episode after each training epoch
+        if render:
+            render_env = gym.make(env_name, render_mode='human')
+            obs_render, _ = render_env.reset()
+            done_render = False
+            while not done_render:
+                with torch.no_grad():
+                    act_render = get_action(torch.as_tensor(obs_render, dtype=torch.float32))
+                obs_render, _, terminated, truncated, _ = render_env.step(act_render)
+                done_render = terminated or truncated
+            render_env.close()
+
+    # save results to JSON if requested
+    if save_results:
+        results_dir = 'results'
+        os.makedirs(results_dir, exist_ok=True)
+        fname = os.path.join(results_dir, f'simple_pg_seed{seed}.json')
+        with open(fname, 'w') as f:
+            json.dump({'env': env_name, 'method': 'simple_pg', 'seed': seed,
+                       'epochs': epochs, 'mean_returns': all_mean_rets}, f)
+        print(f'Results saved to {fname}')
 
 if __name__ == '__main__':
     import argparse
@@ -125,6 +157,10 @@ if __name__ == '__main__':
     parser.add_argument('--env_name', '--env', type=str, default='CartPole-v1')
     parser.add_argument('--render', action='store_true')
     parser.add_argument('--lr', type=float, default=1e-2)
+    parser.add_argument('--epochs', type=int, default=50)
+    parser.add_argument('--seed', type=int, default=0)
+    parser.add_argument('--save_results', action='store_true')
     args = parser.parse_args()
     print('\nUsing simplest formulation of policy gradient.\n')
-    train(env_name=args.env_name, render=args.render, lr=args.lr)
+    train(env_name=args.env_name, render=args.render, lr=args.lr,
+          epochs=args.epochs, seed=args.seed, save_results=args.save_results)
