@@ -34,7 +34,7 @@ def gae_and_returns(rewards, values, last_val, gamma=0.99, lam=0.95):
     return adv.astype(np.float32), ret.astype(np.float32)
 
 
-def train(env_name='CartPole-v1', hidden_sizes=(64, 64), lr_pi=3e-4, lr_vf=1e-3,
+def train(env_name='CartPole-v1', hidden_sizes=(64, 64), lr_pi=1e-2, lr_vf=1e-3,
           epochs=50, batch_size=5000, gamma=0.99, lam=0.95, train_v_iters=80,
           render=False, seed=0, save_results=False):
 
@@ -103,8 +103,13 @@ def train(env_name='CartPole-v1', hidden_sizes=(64, 64), lr_pi=3e-4, lr_vf=1e-3,
                 batch_rets.append(ep_ret)
                 batch_lens.append(ep_len)
 
-                # last_val = 0 (episode ended; no bootstrap)
-                last_val = 0.0
+                # Bootstrap: use V(s_T) when episode was truncated (e.g. time limit),
+                # so value targets and GAE are correct; use 0 when terminated naturally.
+                if truncated:
+                    with torch.no_grad():
+                        last_val = float(ac.v(torch.as_tensor(obs, dtype=torch.float32)))
+                else:
+                    last_val = 0.0
                 adv, ret = gae_and_returns(ep_rews, ep_vals, last_val, gamma=gamma, lam=lam)
                 batch_adv += list(adv)
                 batch_ret += list(ret)
@@ -187,7 +192,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--env_name', '--env', type=str, default='CartPole-v1')
     parser.add_argument('--render', action='store_true')
-    parser.add_argument('--lr_pi', type=float, default=3e-4, help='Policy learning rate')
+    parser.add_argument('--lr_pi', type=float, default=1e-2, help='Policy learning rate')
     parser.add_argument('--lr_vf', type=float, default=1e-3, help='Value function learning rate')
     parser.add_argument('--epochs', type=int, default=50)
     parser.add_argument('--batch_size', type=int, default=5000)
